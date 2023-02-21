@@ -1,0 +1,17 @@
+---
+platform: linux
+
+params:
+  GOVC_INSECURE:
+  GOVC_URL:
+  GOVC_USERNAME:
+  GOVC_PASSWORD:
+  GOVC_DATACENTER:
+  GOVC_DATASTORE:
+  CONTENT_LIBRARY:
+  CONTENT_LIBRARY_NAME:
+  AUTO_SYNC:
+  DOWNLOAD_ON_DEMAND:
+
+run:
+  path: repository/tasks/create_content_library/task.sh

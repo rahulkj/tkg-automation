@@ -1,0 +1,13 @@
+---
+platform: linux
+
+params:
+  GOVC_INSECURE:
+  GOVC_URL:
+  GOVC_USERNAME:
+  GOVC_PASSWORD:
+  GOVC_DATACENTER:
+  CLUSTER_NAME:
+
+run:
+  path: repository/tasks/disable-tkg/task.sh

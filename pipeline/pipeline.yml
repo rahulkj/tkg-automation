@@ -1,0 +1,475 @@
+resource_types:
+- name: pivnet
+  type: docker-image
+  source:
+    repository: pivotalcf/pivnet-resource
+    tag: latest-final
+
+resources:
+- name: tap-cli-linux
+  type: pivnet
+  icon: cloud-download
+  source:
+    api_token: ((tanzu_net_token))
+    product_slug: ((tap.slug))
+    product_version: ((tap.version))
+    sort_by: semver
+  check_every: 30m
+- name: tap-cli-linux-product-bucket
+  type: s3
+  icon: database
+  source:
+    endpoint: ((s3.endpoint))
+    access_key_id: ((s3.access_key))
+    secret_access_key: ((s3.secret_key))
+    disable_ssl: ((s3.disable_ssl))
+    bucket: ((s3_storage.tap_cli_linux_s3_bucket))
+    regexp: ((s3_storage.tap_cli_linux_s3_product_regex))
+- name: tanzu-cluster-essentials-linux
+  type: pivnet
+  icon: cloud-download
+  source:
+    api_token: ((tanzu_net_token))
+    product_slug: ((tanzu_essentials.slug))
+    product_version: ((tanzu_essentials.version))
+    sort_by: semver
+  check_every: 30m
+- name: tanzu-cluster-essentials-linux-product-bucket
+  type: s3
+  icon: database
+  source:
+    endpoint: ((s3.endpoint))
+    access_key_id: ((s3.access_key))
+    secret_access_key: ((s3.secret_key))
+    disable_ssl: ((s3.disable_ssl))
+    bucket: ((s3_storage.tanzu_cluster_essentials_linux_s3_bucket))
+    regexp: ((s3_storage.tanzu_cluster_essentials_linux_s3_product_regex))
+- name: tanzu-packages-product-bucket
+  type: s3
+  icon: database
+  source:
+    endpoint: ((s3.endpoint))
+    access_key_id: ((s3.access_key))
+    secret_access_key: ((s3.secret_key))
+    disable_ssl: ((s3.disable_ssl))
+    bucket: ((s3_storage.tap_packages_s3_bucket))
+    regexp: ((s3_storage.tap_packages_s3_product_regex))
+- name: tanzu-cluster-essentials-packages-bucket
+  type: s3
+  icon: database
+  source:
+    endpoint: ((s3.endpoint))
+    access_key_id: ((s3.access_key))
+    secret_access_key: ((s3.secret_key))
+    disable_ssl: ((s3.disable_ssl))
+    bucket: ((s3_storage.tanzu_cluster_essentials_s3_bucket))
+    regexp: ((s3_storage.tanzu_cluster_essentials_s3_product_regex))
+- name: custom-docker-image
+  type: docker-image
+  icon: docker
+  source:
+    repository: rjain/tap-tools-image
+- name: pipeline-tasks
+  type: git
+  source:
+    uri: ((tasks_git.url))
+    branch: ((tasks_git.branch))
+    username: ((tasks_git.username))
+    password: ((tasks_git.token))
+
+groups:
+- name: all
+  jobs:
+  - download-tap-cli
+  - download-tanzu-cluster-essentials
+  - download-tanzu-cluster-essentials-packages
+  - download-tap-packages
+  - create-cluster-role-binding
+  - install-tanzu-cluster-essentials
+  - register-tap-repository
+  - install-tap
+  - download-tap-packages
+  - upload-tap-packages-to-registry
+  - upload-tanzu-cluster-essentials-packages-to-registry
+  - delete-tap
+  - delete-tanzu-cluster-essentials
+  - delete-cluster-role-binding
+- name: download-products
+  jobs:
+  - download-tap-cli
+  - download-tanzu-cluster-essentials
+  - download-tap-packages
+  - download-tanzu-cluster-essentials-packages
+- name: install-tanzu-cluster-essentials
+  jobs:
+  - upload-tanzu-cluster-essentials-packages-to-registry
+  - install-tanzu-cluster-essentials
+- name: install-tap
+  jobs:
+  - create-cluster-role-binding
+  - register-tap-repository
+  - install-tap
+  - upload-tap-packages-to-registry
+  - upload-tanzu-cluster-essentials-packages-to-registry
+  - install-tanzu-cluster-essentials
+- name: cleanup
+  jobs:
+  - delete-tap
+  - delete-tanzu-cluster-essentials
+  - delete-cluster-role-binding
+jobs:
+- name: download-tap-cli
+  serial: true
+  serial_groups:
+  - product-download
+  plan:
+  - in_parallel:
+    - get: product
+      resource: tap-cli-linux
+      trigger: true
+      params:
+        globs:
+        - ((tap.glob))
+  - put: tap-cli-linux-product-bucket
+    params:
+      file: product/((tap.glob))
+
+- name: download-tap-packages
+  serial: true
+  serial_groups:
+  - product-download
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: product
+      resource: tap-cli-linux
+      trigger: true
+      params:
+        skip_download: "true"
+        globs:
+        - ((tap.glob))
+  - task: download-tap-packages
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/download-tap-packages/task.yml
+    params:
+      TAP_VERSION: ((tap.version))
+      TANZU_REGISTRY_HOST: ((tanzu_registry.host))
+      TANZU_REGISTRY_PROJECT: ((tanzu_registry.project))
+      TANZU_REGISTRY_REPO: ((tanzu_registry.repository))
+      TANZU_REGISTRY_USERNAME: ((tanzu_registry.username))
+      TANZU_REGISTRY_PASSWORD: ((tanzu_registry.password))
+    input_mapping:
+      repository: pipeline-tasks
+    output_mapping:
+      downloads: output
+  - put: tanzu-packages-product-bucket
+    params:
+      file: output/tap-packages-*.tar
+
+- name: download-tanzu-cluster-essentials
+  serial: true
+  serial_groups:
+  - product-download
+  plan:
+  - in_parallel:
+    - get: product
+      resource: tanzu-cluster-essentials-linux
+      trigger: true
+      params:
+        globs:
+        - ((tanzu_essentials.glob))
+  - put: tanzu-cluster-essentials-linux-product-bucket
+    params:
+      file: product/((tanzu_essentials.glob))
+
+- name: download-tanzu-cluster-essentials-packages
+  serial: true
+  serial_groups:
+  - product-download
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: product
+      resource: tanzu-cluster-essentials-linux
+      trigger: true
+      params:
+        skip_download: "true"
+  - task: download-tanzu-cluster-essentials
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/download-tanzu-cluster-essentials/task.yml
+    params:
+      TANZU_CLUSTER_ESSENTIALS_VERSION: ((tanzu_essentials.version))
+      IMGPKG_REGISTRY_HOSTNAME: ((tanzu_registry.host))
+      INSTALL_BUNDLE: ((tanzu_registry.host))/((tanzu_essentials.bundle))
+      IMGPKG_REGISTRY_USERNAME: ((tanzu_registry.username))
+      IMGPKG_REGISTRY_PASSWORD: ((tanzu_registry.password))
+    input_mapping:
+      repository: pipeline-tasks
+    output_mapping:
+      downloads: output
+  - put: tanzu-cluster-essentials-packages-bucket
+    params:
+      file: output/cluster-essentials-bundle-*.tar
+
+- name: upload-tap-packages-to-registry
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: tap-cli-linux-product-bucket
+      params:
+        skip_download: "true"
+    - get: product
+      resource: tanzu-packages-product-bucket
+      trigger: true
+  - task: upload-tap-packages-to-registry
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/upload-tap-packages-to-registry/task.yml
+    params:
+      TAP_VERSION: ((tap.version))
+      INSTALL_REGISTRY_HOSTNAME: ((internal_registry.host))
+      INSTALL_REGISTRY_USERNAME: ((internal_registry.username))
+      INSTALL_REGISTRY_PASSWORD: ((internal_registry.password))
+      INSTALL_REPO: ((tap.project))/((tap.tap_repository))
+    input_mapping:
+      repository: pipeline-tasks
+
+- name: upload-tanzu-cluster-essentials-packages-to-registry
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: tanzu-cluster-essentials-linux-product-bucket
+      params:
+        skip_download: "true"
+    - get: product
+      resource: tanzu-cluster-essentials-packages-bucket
+      trigger: true
+  - task: upload-tanzu_cluster-essentials-packages-to-registry
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/upload-tanzu-cluster-essentials-packages-to-registry/task.yml
+    params:
+      TANZU_CLUSTER_ESSETIALS_VERSION: ((tanzu_essentials.version))
+      INSTALL_REGISTRY_HOSTNAME: ((internal_registry.host))
+      INSTALL_REGISTRY_USERNAME: ((internal_registry.username))
+      INSTALL_REGISTRY_PASSWORD: ((internal_registry.password))
+      INSTALL_REPO: ((tap.project))/((tanzu_essentials.packages_repository))
+    input_mapping:
+      repository: pipeline-tasks
+
+- name: create-cluster-role-binding
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: product
+      resource: tanzu-cluster-essentials-linux-product-bucket
+      params:
+        skip_download: "true"
+      trigger: true
+    - get: tanzu-cluster-essentials-packages-bucket
+      params:
+        skip_download: "true"
+      trigger: true
+  - task: create-cluster-role-binding
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/create-cluster-role-binding/task.yml
+    params:
+      VSPHERE_API_ENDPOINT: ((k8s.vsphere.api_endpoint))
+      K8S_ADMIN_USERNAME: ((k8s.vsphere.username))
+      K8S_ADMIN_PASSWORD: ((k8s.vsphere.password))
+      K8S_CLUSTER_NAMESPACE: ((k8s.vsphere.k8s_cluster_namespace))
+      K8S_CLUSTER_NAME: ((k8s.vsphere.k8s_cluster_name))
+      CLUSTER_ROLE_BINDING_NAME: ((k8s.cluster_role_binding_name))
+    input_mapping:
+      repository: pipeline-tasks
+
+- name: install-tanzu-cluster-essentials
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: product
+      resource: tanzu-cluster-essentials-linux-product-bucket
+      passed: [upload-tanzu-cluster-essentials-packages-to-registry]
+      params:
+        globs:
+        - ((tanzu_essentials.glob))
+        unpack: true
+    - get: tanzu-cluster-essentials-packages-bucket
+      passed: [create-cluster-role-binding]
+      trigger: true
+      params:
+        skip_download: "true"
+  - task: install-tanzu-cluster-essentials
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/install-tanzu-cluster-essentials/task.yml
+    params:
+      VSPHERE_API_ENDPOINT: ((k8s.vsphere.api_endpoint))
+      K8S_ADMIN_USERNAME: ((k8s.vsphere.username))
+      K8S_ADMIN_PASSWORD: ((k8s.vsphere.password))
+      K8S_CLUSTER_NAMESPACE: ((k8s.vsphere.k8s_cluster_namespace))
+      K8S_CLUSTER_NAME: ((k8s.vsphere.k8s_cluster_name))
+      INSTALL_REGISTRY_HOSTNAME: ((internal_registry.host))
+      INSTALL_REGISTRY_USERNAME: ((internal_registry.username))
+      INSTALL_REGISTRY_PASSWORD: ((internal_registry.password))
+      INSTALL_BUNDLE: ((internal_registry.host))/((tap.project))/((tanzu_essentials.install_bundle))
+      DEPLOY: ((tanzu_essentials.deploy))
+    input_mapping:
+      repository: pipeline-tasks
+
+- name: register-tap-repository
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: product
+      resource: tap-cli-linux-product-bucket
+      params:
+        globs:
+        - ((tap.glob))
+    - get: tanzu-cluster-essentials-packages-bucket
+      passed: [install-tanzu-cluster-essentials]
+      params:
+        skip_download: "true"
+    - get: tanzu-packages-product-bucket
+      passed: [upload-tap-packages-to-registry]
+      trigger: true
+      params:
+        skip_download: "true"
+  - task: register-tap-repository
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/register-tap-repository/task.yml
+    params:
+      VSPHERE_API_ENDPOINT: ((k8s.vsphere.api_endpoint))
+      K8S_ADMIN_USERNAME: ((k8s.vsphere.username))
+      K8S_ADMIN_PASSWORD: ((k8s.vsphere.password))
+      K8S_CLUSTER_NAMESPACE: ((k8s.vsphere.k8s_cluster_namespace))
+      K8S_CLUSTER_NAME: ((k8s.vsphere.k8s_cluster_name))
+      INSTALL_REGISTRY_HOSTNAME: ((internal_registry.host))
+      INSTALL_REGISTRY_USERNAME: ((internal_registry.username))
+      INSTALL_REGISTRY_PASSWORD: ((internal_registry.password))
+      TAP_VERSION: ((tap.version))
+      INSTALL_REPO: ((tap.project))/((tap.tap_repository))      
+      TAP_INSTALL_NAMESPACE: ((tap.install_namespace))
+      TAP_REGISTRY_SECRET_NAME: ((tap.registry_secret_name))
+      TAP_REPOSITORY_NAME: ((tap.repository_name))
+    input_mapping:
+      repository: pipeline-tasks
+
+- name: install-tap
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: product
+      resource: tap-cli-linux-product-bucket
+      params:
+        globs:
+        - ((tap.glob))
+    - get: tanzu-packages-product-bucket
+      passed: [register-tap-repository]
+      trigger: true
+      params:
+        skip_download: "true"
+  - task: install-tap
+    timeout: 20m
+    attempts: 3
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/install-tap/task.yml
+    params:
+      VSPHERE_API_ENDPOINT: ((k8s.vsphere.api_endpoint))
+      K8S_ADMIN_USERNAME: ((k8s.vsphere.username))
+      K8S_ADMIN_PASSWORD: ((k8s.vsphere.password))
+      K8S_CLUSTER_NAMESPACE: ((k8s.vsphere.k8s_cluster_namespace))
+      K8S_CLUSTER_NAME: ((k8s.vsphere.k8s_cluster_name))
+      INSTALL_REGISTRY_HOSTNAME: ((internal_registry.host))
+      TAP_INSTALL_NAMESPACE: ((tap.install_namespace))
+      TAP_REGISTRY_SECRET_NAME: ((tap.registry_secret_name))
+      TAP_VERSION: ((tap.version))
+      TAP_PROFILE: ((tap.profile))
+      TAP_INGRESS_DOMAIN: ((k8s.ingress_domain))
+      TAP_INTERNAL_REGISTRY_HOST: ((internal_registry.host))
+      TAP_INTERNAL_REGISTRY_USERNAME: ((internal_registry.username))
+      TAP_INTERNAL_REGISTRY_PASSWORD: ((internal_registry.password))
+      TAP_INTERNAL_PROJECT: ((tap.project))
+      TAP_INTERNAL_SUPPLY_CHAIN_PROJECT: ((tap.supply_chain_project))
+      TAP_INTERNAL_REPOSITORY: ((tap.tap_repository))
+      TAP_GITOPS_SSH_SECRET_NAME: ((gitops.ssh_secret_name))
+      TAP_CATALOG_URL: ((tap.catalog_url))
+    input_mapping:
+      repository: pipeline-tasks
+
+- name: delete-tap
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: product
+      resource: tap-cli-linux-product-bucket
+      params:
+        globs:
+        - ((tap.glob))
+  - task: delete-tap
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/delete-tap/task.yml
+    params:
+      VSPHERE_API_ENDPOINT: ((k8s.vsphere.api_endpoint))
+      K8S_ADMIN_USERNAME: ((k8s.vsphere.username))
+      K8S_ADMIN_PASSWORD: ((k8s.vsphere.password))
+      K8S_CLUSTER_NAMESPACE: ((k8s.vsphere.k8s_cluster_namespace))
+      K8S_CLUSTER_NAME: ((k8s.vsphere.k8s_cluster_name))
+      TAP_INSTALL_NAMESPACE: ((tap.install_namespace))
+      TAP_REGISTRY_SECRET_NAME: ((tap.registry_secret_name))
+      TAP_REPOSITORY_NAME: ((tap.repository_name))
+      TAP_VERSION: ((tap.version))
+    input_mapping:
+      repository: pipeline-tasks
+
+- name: delete-tanzu-cluster-essentials
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+    - get: product
+      resource: tanzu-cluster-essentials-linux-product-bucket
+      passed: [create-cluster-role-binding]
+      params:
+        globs:
+        - ((tanzu_essentials.glob))
+        unpack: true
+  - task: delete-tanzu-cluster-essentials
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/delete-tanzu-cluster-essentials/task.yml
+    params:
+      VSPHERE_API_ENDPOINT: ((k8s.vsphere.api_endpoint))
+      K8S_ADMIN_USERNAME: ((k8s.vsphere.username))
+      K8S_ADMIN_PASSWORD: ((k8s.vsphere.password))
+      K8S_CLUSTER_NAMESPACE: ((k8s.vsphere.k8s_cluster_namespace))
+      K8S_CLUSTER_NAME: ((k8s.vsphere.k8s_cluster_name))
+      INSTALL_REGISTRY_HOSTNAME: ((internal_registry.host))
+      INSTALL_REGISTRY_USERNAME: ((internal_registry.username))
+      INSTALL_REGISTRY_PASSWORD: ((internal_registry.password))
+      INSTALL_BUNDLE: ((internal_registry.host))/((tap.project))/((tanzu_essentials.install_bundle))
+    input_mapping:
+      repository: pipeline-tasks
+
+- name: delete-cluster-role-binding
+  plan:
+  - in_parallel:
+    - get: custom-docker-image
+    - get: pipeline-tasks
+  - task: delete-cluster-role-binding
+    image: custom-docker-image
+    file: pipeline-tasks/tasks/delete-cluster-role-binding/task.yml
+    params:
+      VSPHERE_API_ENDPOINT: ((k8s.vsphere.api_endpoint))
+      K8S_ADMIN_USERNAME: ((k8s.vsphere.username))
+      K8S_ADMIN_PASSWORD: ((k8s.vsphere.password))
+      K8S_CLUSTER_NAMESPACE: ((k8s.vsphere.k8s_cluster_namespace))
+      K8S_CLUSTER_NAME: ((k8s.vsphere.k8s_cluster_name))
+      CLUSTER_ROLE_BINDING_NAME: ((k8s.cluster_role_binding_name))
+    input_mapping:
+      repository: pipeline-tasks

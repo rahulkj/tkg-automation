@@ -1,0 +1,38 @@
+vcenter:
+  host: vcenter.cloudlab.local
+  username: administrator@cloudlab.local
+  password: Welcome1234%
+  datacenter: CLOUDLAB
+  network_name: "VM Network"
+
+content_library:
+  name: k8s
+  content_url: http://uisp.cloudlab.local:9090/vmware/content/lib.json
+  auto_sync: true
+  download_on_demand: true
+
+tag:
+  name: k8s
+  category_name: k8s
+  storage_policy_name: k8s-storage
+  associated_storage: COMMON_STORAGE_1
+
+tkg:
+  cluster_name: CONTROL_PLANE
+  dns_server: 172.16.0.1
+  ntp_server: 172.16.0.22
+  search_domains: cloudlab.local
+  dns_name: api.tkg.cloudlab.local
+  services_cidr: 10.96.0.0/24
+  pods_cidr: 10.244.0.0/20
+  network_provider: NSXT_CONTAINER_PLUGIN
+  egress_cidr: 172.16.0.96/27
+  ingress_cidr: 172.16.0.64/27
+  vds_switch_name: switch-overlay
+  edge_cluster_name: edge-cluster
+  cluster_size: TINY
+  management_network_ip_allocation: STATICRANGE
+  management_network_name: EDGE-UPLINK-PG
+  management_network_gateway: 172.16.0.1
+  management_network_starting_address: 172.16.0.56
+  management_network_subnet_mask: 255.255.224.0
