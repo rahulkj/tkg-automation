@@ -1,13 +1,13 @@
 vcenter:
-  host: vcenter.cloudlab.local
-  username: administrator@cloudlab.local
+  host: vcenter.lab.int
+  username: administrator@lab.int
   password: Welcome1234%
   datacenter: CLOUDLAB
   network_name: "VM Network"
 
 content_library:
   name: k8s
-  content_url: http://uisp.cloudlab.local:9090/vmware/content/lib.json
+  content_url: http://uisp.lab.int:9090/vmware/content/lib.json
   auto_sync: true
   download_on_demand: true
 
@@ -21,8 +21,8 @@ tkg:
   cluster_name: CONTROL_PLANE
   dns_server: 172.16.0.1
   ntp_server: 172.16.0.22
-  search_domains: cloudlab.local
-  dns_name: api.tkg.cloudlab.local
+  search_domains: lab.int
+  dns_name: api.tkg.lab.int
   services_cidr: 10.96.0.0/24
   pods_cidr: 10.244.0.0/20
   network_provider: NSXT_CONTAINER_PLUGIN
